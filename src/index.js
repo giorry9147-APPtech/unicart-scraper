@@ -9,9 +9,11 @@ const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.SCRAPER_TOKEN || "";
 
 function authOk(req) {
-  if (!TOKEN) return true;
-  const h = req.headers.authorization || "";
-  return h === `Bearer ${TOKEN}`;
+  const token = (process.env.SCRAPER_TOKEN || "").trim();
+  if (!token) return true;
+
+  const h = (req.headers.authorization || "").trim();
+  return h === `Bearer ${token}`;
 }
 
 function pickFirst(...vals) {
