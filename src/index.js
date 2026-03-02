@@ -211,13 +211,15 @@ app.post("/scrape", async (req, res) => {
     const html = await page.content();
     const parsed = parseFromHtml(url, html);
 
-    return res.json({
-      ok: true,
-      url,
-      html, // handig als je later server-side nog wil parseren
-      ...parsed,
-      ms: Date.now() - started
-    });
+   const debug = req.query.debug === "1";
+
+  return res.json({
+  ok: true,
+  url,
+  ...parsed,
+  ...(debug ? { html } : {}), // alleen html als je ?debug=1 meegeeft
+  ms: Date.now() - started
+});
   } catch (e) {
     return res.status(502).json({
       ok: false,
