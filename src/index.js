@@ -7,7 +7,6 @@ app.use(express.json({ limit: "1mb" }));
 
 const PORT = process.env.PORT || 8080;
 const TOKEN = process.env.SCRAPER_TOKEN || "";
-
 function authOk(req) {
   const token = (process.env.SCRAPER_TOKEN || "").trim();
   if (!token) return true;
