@@ -230,6 +230,20 @@ async function dismissCookieWall(page) {
   return false;
 }
 
+// Optional residential proxy. Set PROXY_SERVER + PROXY_USERNAME +
+// PROXY_PASSWORD as Fly secrets to route every Playwright request through
+// a residential IP (e.g. Webshare). Without the env vars, the browser
+// uses Fly's datacenter IP and only the stealth plugin protects us.
+function proxyConfig() {
+  const server = (process.env.PROXY_SERVER || "").trim();
+  if (!server) return undefined;
+  return {
+    server,
+    username: (process.env.PROXY_USERNAME || "").trim() || undefined,
+    password: (process.env.PROXY_PASSWORD || "").trim() || undefined,
+  };
+}
+
 app.post("/scrape", async (req, res) => {
   if (!authOk(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
 
@@ -242,8 +256,10 @@ app.post("/scrape", async (req, res) => {
 
   let browser;
   try {
+    const proxy = proxyConfig();
     browser = await chromium.launch({
       headless: true,
+      ...(proxy ? { proxy } : {}),
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
