@@ -15,9 +15,12 @@ primary_region = "ams"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  # Keep the machine warm — playwright cold-start adds ~10s and Vercel
+  # functions only get 60s total. Free tier can comfortably run 1 always-on
+  # shared-cpu-1x machine.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
   [[http_service.checks]]
