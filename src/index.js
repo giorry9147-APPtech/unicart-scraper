@@ -1,6 +1,9 @@
 import express from "express";
 import * as cheerio from "cheerio";
-import { chromium } from "playwright";
+import { chromium } from "playwright-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+
+chromium.use(StealthPlugin());
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -172,6 +175,61 @@ function parseFromHtml(url, html) {
   };
 }
 
+// ── Cookie-consent selectors (covers ~95 % of Dutch / EU shops) ──
+const COOKIE_ACCEPT_SELECTORS = [
+  // Generic CMP frameworks
+  "#onetrust-accept-btn-handler",
+  ".onetrust-accept-btn-handler",
+  "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+  "#CybotCookiebotDialogBodyButtonAccept",
+  ".cc-accept-all",
+  ".cc-allow",
+  '[data-testid="cookie-accept"]',
+  '[data-action="accept-cookies"]',
+  '[data-cookiefirst-action="accept"]',
+  // Common Dutch labels
+  'button:has-text("Alles accepteren")',
+  'button:has-text("Accepteren")',
+  'button:has-text("Alle cookies accepteren")',
+  'button:has-text("Akkoord")',
+  'button:has-text("Ja, ik ga akkoord")',
+  'button:has-text("Accept all")',
+  'button:has-text("Accept cookies")',
+  'button:has-text("Accept All Cookies")',
+  'button:has-text("Allow all")',
+  'button:has-text("Got it")',
+  'button:has-text("OK")',
+  // Bol.com specific
+  'button[data-test="consent-modal-confirm-btn"]',
+  '#js-first-screen-accept',
+  // MediaMarkt / Saturn
+  'button.gdpr-cookie-accept',
+  '[data-purpose="cookie-consent-accept"]',
+  // Zalando
+  '#uc-btn-accept-banner',
+  // Generic fallbacks
+  'button[id*="accept" i]',
+  'button[class*="accept" i]',
+  'a[id*="accept" i]',
+  '[role="dialog"] button:has-text("OK")',
+];
+
+async function dismissCookieWall(page) {
+  for (const sel of COOKIE_ACCEPT_SELECTORS) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 400 })) {
+        await btn.click({ timeout: 2000 });
+        await page.waitForTimeout(400);
+        return true;
+      }
+    } catch {
+      // selector not found, try next
+    }
+  }
+  return false;
+}
+
 app.post("/scrape", async (req, res) => {
   if (!authOk(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
 
@@ -189,43 +247,61 @@ app.post("/scrape", async (req, res) => {
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage"
-      ]
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+      ],
     });
 
     const context = await browser.newContext({
       locale: "nl-NL",
       timezoneId: "Europe/Amsterdam",
       userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
-      viewport: { width: 1280, height: 800 }
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      viewport: { width: 1366, height: 900 },
+      extraHTTPHeaders: {
+        "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+      },
+    });
+
+    // Hide webdriver flag
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
     });
 
     const page = await context.newPage();
 
-    // Belangrijk: load zo dat JS content er is
+    // Navigate
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    // Try to dismiss cookie wall early
+    await dismissCookieWall(page);
+
+    // Wait for JS content to render
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(750);
+    await page.waitForTimeout(1000);
+
+    // Try cookie dismiss again (some walls appear after networkidle)
+    await dismissCookieWall(page);
+    await page.waitForTimeout(500);
 
     const html = await page.content();
     const parsed = parseFromHtml(url, html);
 
-   const debug = req.query.debug === "1";
+    const debug = req.query.debug === "1";
 
-  return res.json({
-  ok: true,
-  url,
-  ...parsed,
-  ...(debug ? { html } : {}), // alleen html als je ?debug=1 meegeeft
-  ms: Date.now() - started
-});
+    return res.json({
+      ok: true,
+      url,
+      ...parsed,
+      ...(debug ? { html } : {}),
+      ms: Date.now() - started,
+    });
   } catch (e) {
     return res.status(502).json({
       ok: false,
       url,
       error: e?.message ?? String(e),
-      ms: Date.now() - started
+      ms: Date.now() - started,
     });
   } finally {
     if (browser) await browser.close().catch(() => {});
