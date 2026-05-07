@@ -13,4 +13,14 @@ const r = await fetch(`${base}/scrape`, {
 });
 
 console.log("status:", r.status);
-console.log(await r.text());
+const data = await r.json().catch(() => null);
+console.log("status:", r.status);
+console.log({
+  ok: data?.ok,
+  title: data?.title,
+  price: data?.price,
+  currency: data?.currency,
+  imageUrl: data?.imageUrl,
+  ms: data?.ms,
+  error: data?.error
+});
